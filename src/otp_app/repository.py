@@ -138,6 +138,20 @@ def get_account(
     return cursor.fetchone()
 
 
+def list_accounts(connection):
+    rows = connection.execute(
+        """
+        SELECT
+            account_id,
+            account_name
+        FROM accounts
+        ORDER BY account_name
+        """
+    ).fetchall()
+
+    return rows
+
+
 def create_account_record(
     connection,
     account_id: str,

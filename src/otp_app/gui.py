@@ -1,13 +1,25 @@
 import tkinter as tk
 from tkinter import ttk
 
+from .service import (
+    enrol_account,
+    generate_current_otp,
+    get_account_choices,
+    verify_otp,
+)
+
 
 class OTPApplication(ttk.Frame):
-    def __init__(self, master):
+    def __init__(self, master, connection, storage_key):
         super().__init__(master, padding=15)
         self.master = master
+        self.connection = connection
+        self.storage_key = storage_key
+        self.account_map = {}
         self.pack(fill="both", expand=True)
         self._create_widgets()
+        self.refresh_accounts()
+        self._schedule_generator_refresh()
 
     def _create_widgets(self):
         self._create_title()
@@ -66,13 +78,6 @@ class OTPApplication(ttk.Frame):
         )
         self.enrolment_tab.columnconfigure(1, weight=1)
 
-    def _on_create_account(self):
-        account_name = self.account_name_var.get().strip()
-        if not account_name:
-            self.set_status("Enter an account name.", error=True)
-            return
-        self.set_status(f"Account creation requested: {account_name}")
-
     def _create_generator_tab(self):
         heading = ttk.Label(
             self.generator_tab,
@@ -92,6 +97,10 @@ class OTPApplication(ttk.Frame):
             width=30,
         )
         self.generator_account_combo.grid(row=1, column=1, sticky="ew", pady=5)
+        self.generator_account_combo.bind(
+            "<<ComboboxSelected>>",
+            self._on_generator_account_changed,
+        )
 
         ttk.Label(self.generator_tab, text="Current OTP:").grid(
             row=2, column=0, sticky="w", pady=(20, 5)
@@ -171,18 +180,117 @@ class OTPApplication(ttk.Frame):
         )
         self.verifier_tab.columnconfigure(1, weight=1)
 
-    def _on_verify(self):
-        account = self.verifier_account_var.get()
-        otp = self.otp_input_var.get()
-        if not account:
-            self.set_status("Select an account.", error=True)
-            return
-        if not otp:
-            self.set_status("Enter an OTP.", error=True)
+    def refresh_accounts(self):
+        accounts = get_account_choices(self.connection)
+        self.account_map = {
+            item["account_name"]: item["account_id"]
+            for item in accounts
+        }
+        self.set_accounts(list(self.account_map.keys()))
+
+    def _on_create_account(self):
+        name = self.account_name_var.get()
+        try:
+            enrol_account(
+                self.connection,
+                self.storage_key,
+                name,
+            )
+        except Exception as exc:
+            self.set_status(str(exc), error=True)
             return
 
-        self.verification_result_var.set("Verification requested.")
-        self.set_status("Verification request received.")
+        self.account_name_var.set("")
+        self.refresh_accounts()
+        self.set_status("Account created successfully.")
+
+    def _on_generator_account_changed(self, event=None):
+        self._refresh_current_otp()
+
+    def _refresh_current_otp(self):
+        account_name = self.generator_account_var.get()
+        if not account_name:
+            self.current_otp_var.set("------")
+            self.countdown_var.set("-- seconds")
+            return
+
+        account_id = self.account_map.get(account_name)
+        if account_id is None:
+            self.set_status("Selected account is unavailable.", error=True)
+            return
+
+        try:
+            result = generate_current_otp(
+                self.connection,
+                self.storage_key,
+                account_id,
+            )
+        except Exception:
+            self.current_otp_var.set("------")
+            self.countdown_var.set("-- seconds")
+            self.set_status("Unable to generate OTP.", error=True)
+            return
+
+        self.current_otp_var.set(result["otp"])
+        self.countdown_var.set(f'{result["remaining"]} seconds')
+
+    def _schedule_generator_refresh(self):
+        self._refresh_current_otp()
+        self.after(250, self._schedule_generator_refresh)
+
+    def _on_verify(self):
+        account_name = self.verifier_account_var.get()
+        supplied_otp = self.otp_input_var.get()
+
+        if not account_name:
+            self.set_status("Select an account.", error=True)
+            return
+
+        account_id = self.account_map.get(account_name)
+        if account_id is None:
+            self.set_status("Selected account is unavailable.", error=True)
+            return
+
+        try:
+            result = verify_otp(
+                self.connection,
+                self.storage_key,
+                account_id,
+                supplied_otp,
+            )
+        except Exception:
+            self.verification_result_var.set("Operational error.")
+            self.set_status(
+                "Verification could not be completed.",
+                error=True,
+            )
+            return
+
+        if result.success:
+            self.verification_result_var.set("Accepted.")
+            self.set_status("OTP accepted.")
+            self.otp_input_var.set("")
+            return
+
+        if result.outcome == "throttled":
+            self.verification_result_var.set("Temporarily unavailable.")
+            self.set_status(
+                "Verification is temporarily locked.",
+                error=True,
+            )
+            return
+
+        if result.outcome == "cooldown_started":
+            self.verification_result_var.set("Rejected.")
+            self.set_status(
+                "Too many failed attempts. "
+                "Verification is temporarily locked.",
+                error=True,
+            )
+            return
+
+        self.verification_result_var.set("Rejected.")
+        self.set_status("OTP verification failed.", error=True)
 
     def _create_status_area(self):
         separator = ttk.Separator(self, orient="horizontal")
@@ -205,3 +313,8 @@ class OTPApplication(ttk.Frame):
                 self.generator_account_var.set(names[0])
             if self.verifier_account_var.get() not in names:
                 self.verifier_account_var.set(names[0])
+        else:
+            self.generator_account_var.set("")
+            self.verifier_account_var.set("")
+            self.current_otp_var.set("------")
+            self.countdown_var.set("-- seconds")

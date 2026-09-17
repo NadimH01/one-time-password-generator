@@ -1,5 +1,6 @@
 import base64
 import json
+from pathlib import Path
 
 from cryptography.fernet import Fernet, InvalidToken
 
@@ -10,8 +11,49 @@ from .config import (
     TOTP_DIGITS,
     TOTP_PERIOD,
 )
+
+
 def generate_storage_key() -> bytes:
     return Fernet.generate_key()
+
+
+def save_storage_key(
+    key_path: Path,
+    key: bytes,
+) -> None:
+    key_path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    if key_path.exists():
+        raise FileExistsError(
+            "Storage key already exists."
+        )
+
+    key_path.write_bytes(key)
+
+
+def load_storage_key(
+    key_path: Path,
+) -> bytes:
+    if not key_path.exists():
+        raise FileNotFoundError(
+            "Storage key is missing."
+        )
+
+    key = key_path.read_bytes()
+
+    try:
+        Fernet(key)
+    except (ValueError, TypeError) as exc:
+        raise ValueError(
+            "Storage key is invalid."
+        ) from exc
+
+    return key
+
+
 def encrypt_account_secret(
     key: bytes,
     account_id: str,
@@ -46,6 +88,8 @@ def encrypt_account_secret(
     fernet = Fernet(key)
 
     return fernet.encrypt(plaintext)
+
+
 def decrypt_account_secret(
     key: bytes,
     expected_account_id: str,

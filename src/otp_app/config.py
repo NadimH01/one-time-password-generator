@@ -1,3 +1,25 @@
+import os
+from pathlib import Path
+
+
+APP_NAME = "CCS2243OTP"
+
+LOCAL_APP_DATA = Path(
+	os.environ.get(
+		"LOCALAPPDATA",
+		Path.home(),
+	)
+)
+
+APP_DATA_DIR = LOCAL_APP_DATA / APP_NAME
+
+DATABASE_DIR = APP_DATA_DIR / "data"
+KEY_DIR = APP_DATA_DIR / "keys"
+
+DATABASE_PATH = DATABASE_DIR / "otp.sqlite3"
+STORAGE_KEY_PATH = KEY_DIR / "storage.key"
+
+
 TOTP_ALGORITHM = "SHA256"
 TOTP_DIGITS = 6
 TOTP_PERIOD = 30

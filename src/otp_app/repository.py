@@ -167,4 +167,72 @@ def create_account_record(
     except Exception:
         connection.rollback()
         raise
-    
+
+
+def get_verification_state(
+    connection,
+    account_id: str,
+):
+    return connection.execute(
+        """
+        SELECT
+            last_accepted_counter,
+            failed_attempts,
+            locked_until
+        FROM verification_state
+        WHERE account_id = ?
+        """,
+        (account_id,),
+    ).fetchone()
+def update_verification_state(
+    connection,
+    account_id: str,
+    last_accepted_counter: int,
+    failed_attempts: int,
+    locked_until: int,
+) -> None:
+
+    connection.execute(
+        """
+        UPDATE verification_state
+        SET
+            last_accepted_counter = ?,
+            failed_attempts = ?,
+            locked_until = ?
+        WHERE account_id = ?
+        """,
+        (
+            last_accepted_counter,
+            failed_attempts,
+            locked_until,
+            account_id,
+        ),
+    )
+
+
+def insert_audit_event(
+    connection,
+    occurred_at: int,
+    account_id: str | None,
+    event_type: str,
+    outcome: str,
+) -> None:
+
+    connection.execute(
+        """
+        INSERT INTO audit_events (
+            occurred_at,
+            account_id,
+            event_type,
+            outcome
+        )
+        VALUES (?, ?, ?, ?)
+        """,
+        (
+            occurred_at,
+            account_id,
+            event_type,
+            outcome,
+        ),
+    )
+       
